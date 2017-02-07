@@ -22,7 +22,7 @@ var polyUtil = require('polyline-encoded');
 var net = require('net');
 
 var client = new net.Socket();
-client.connect(5007, '127.0.0.1', function() {
+client.connect(10002, '127.0.0.1', function() {
   gmAPI.directions(directionParams, function(err, result) {
     if (err)
       console.log(err);
