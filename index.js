@@ -1,6 +1,18 @@
+var argv = require('minimist')(process.argv.slice(2), {
+  alias: {
+    "destination": "d",
+    "origin": "o",
+    "waypoint": "w",
+    "key": "k"
+  }
+});
+
+if (!Array.isArray(argv.waypoint))
+  argv.waypoint = [argv.waypoint];
+
 var LatLon = require("./lib/geo").LatLon;
 var publicConfig = {
-  key: process.env.GOOGLE_API_KEY,
+  key: argv.k || process.env.GOOGLE_API_KEY,
   stagger_time:       1000, // for elevationPath
   encode_polylines:   false,
   secure:             true // use https
@@ -11,8 +23,9 @@ var GoogleMapsAPI = require('googlemaps');
 var gmAPI = new GoogleMapsAPI(publicConfig);
 
 var directionParams = {
-  "origin":    "Disneyland",
-  "destination": "Universal Studios Hollywood"
+  "origin":    argv.o,
+  "destination": argv.d,
+  "waypoints": argv.waypoint.join('|')
 };
 
 var polyUtil = require('polyline-encoded');
@@ -58,6 +71,7 @@ client.connect(10002, '127.0.0.1', function() {
 
         if (nextCoord) {
           var coord = lastCoord.intermediatePointTo(nextCoord, intermediateFraction);
+          var speed = 0.3;
           console.log("Sending position", coord);
           var toSend = '(087073819397BR00170205A' + latToDegMinHemi(coord.lat) + lngToDegMinHemi(coord.lon) + '000.3172029000.00,00000000L00000000)';
           console.log("Sending", toSend);
