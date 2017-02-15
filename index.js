@@ -40,46 +40,95 @@ client.connect(10002, '127.0.0.1', function() {
     if (err)
       console.log(err);
     else {
-      var encoded = result.routes[0].overview_polyline.points;
-      var latlngs = polyUtil.decode(encoded).map(function(coord) { return new LatLon(coord[0], coord[1]); });
-      var lastCoord;
-      var nextCoord;
+      var route = 0;
+      var leg = 0;
+      var step = -1;
+
+      var lastPoint;
+      var nextPoint;
       var currentDistance = 0;
-      var speed = 90; //kmh
+      var desiredSpeed = 90; //kmh
       var intermediateFraction = 0;
       var intervalLength = 2;
-      var distancePerInterval = speed * 1000 / 3600 * intervalLength;
+      var distancePerInterval = desiredSpeed * 1000 / 3600 * intervalLength;
 
-      var interval = setInterval((coords) => {
-        if (lastCoord) {
+      var latlngs = [];
+
+      var interval = setInterval(() => {
+        if (latlngs.length == 0) {
+          if (step < result.routes[route].legs[leg].steps.length - 1) 
+            step++; 
+          else 
+          { 
+            step = 0; 
+            if (leg < result.routes[route].legs.length - 1) 
+              leg++; 
+            else 
+            { 
+              leg = 0; 
+              if (route < result.routes.length -1) 
+                route++;
+              else 
+              {
+                console.log("done with route");
+                process.exit(0);
+              }
+            } 
+          }
+          console.log("Loading route", route, "leg", leg, "step", step);
+          latlngs = 
+          polyUtil.
+          decode(result.routes[route].legs[leg].steps[step].polyline.points).
+          map(function(coord) { 
+            return new LatLon(coord[0], coord[1]); 
+          });
+        }
+        if (lastPoint) {
           intermediateFraction += (distancePerInterval / currentDistance);
           if (intermediateFraction > 1) intermediateFraction = 1;
 
           if(intermediateFraction >= 1)
           {
-            lastCoord = nextCoord;
-            nextCoord = coords.shift();
-            currentDistance = lastCoord.distanceTo(nextCoord);
+            lastPoint = nextPoint;
+            nextPoint = latlngs.shift();
+            currentDistance = lastPoint.distanceTo(nextPoint);
             intermediateFraction = 0;
           }
         } else {
-          lastCoord = coords.shift();
-          nextCoord = coords.shift();
-          currentDistance = lastCoord.distanceTo(nextCoord);
+          lastPoint = latlngs.shift();
+          nextPoint = latlngs.shift();
           intermediateFraction = 0;
         }
 
-        if (nextCoord) {
-          var coord = lastCoord.intermediatePointTo(nextCoord, intermediateFraction);
-          var speed = 0.3;
+        if (nextPoint) {
+          currentDistance = lastPoint.distanceTo(nextPoint);
+
+          var coord = lastPoint.intermediatePointTo(nextPoint, intermediateFraction);
+          var speed = currentDistance / distancePerInterval * desiredSpeed;
+          var t = new Date();
+          var gpstime = [
+            t.getUTCFullYear().toString().slice(-2),
+            ('00' + (t.getUTCMonth() + 1)).slice(-2),
+            ('00' + t.getUTCDate()).slice(-2),
+            ('00' + t.getUTCHours()).slice(-2),
+            ('00' + t.getUTCMinutes()).slice(-2),
+            ('00' + t.getUTCSeconds()).slice(-2),
+          ]
+          console.log("Traveled " + currentDistance + "m, current speed: ", speed.toFixed(1));
           console.log("Sending position", coord);
-          var toSend = '(087073819397BR00170205A' + latToDegMinHemi(coord.lat) + lngToDegMinHemi(coord.lon) + '000.3172029000.00,00000000L00000000)';
+          var toSend = 
+            '(087073819397BR00' + 
+            gpstime.slice(0, 3).join('') + 
+            'A' + latToDegMinHemi(coord.lat) + 
+            lngToDegMinHemi(coord.lon) + 
+            ("000" + speed.toFixed(1)).slice(-5) + 
+            gpstime.slice(-3).join('') + 
+            '000.00,00000000L00000000)';
+
           console.log("Sending", toSend);
           client.write(toSend);
-        } else {
-          clearInterval(interval);
         }
-      }, intervalLength * 1000, latlngs)
+      }, intervalLength * 1000)
     }
   })
 });
