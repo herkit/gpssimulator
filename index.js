@@ -47,7 +47,7 @@ client.connect(10002, '127.0.0.1', function() {
       var lastPoint;
       var nextPoint;
       var currentDistance = 0;
-      var desiredSpeed = 90; //kmh
+      var desiredSpeed = 80;//kmh
       var intermediateFraction = 0;
       var intervalLength = 2;
       var distancePerInterval = desiredSpeed * 1000 / 3600 * intervalLength;
@@ -90,19 +90,26 @@ client.connect(10002, '127.0.0.1', function() {
           if(intermediateFraction >= 1)
           {
             lastPoint = nextPoint;
-            nextPoint = latlngs.shift();
+            nextPoint = latlngs.shift();           
             currentDistance = lastPoint.distanceTo(nextPoint);
             intermediateFraction = 0;
+            // try to get closer to desired speed:
+            var skips = 0;
+            while(currentDistance < distancePerInterval * 0.66 && skips < 5 && latlngs.length > 2) { 
+              var skipPoint = nextPoint;
+              nextPoint = latlngs.shift();
+              currentDistance += skipPoint.distanceTo(nextPoint);
+              skips++;
+            }
           }
         } else {
           lastPoint = latlngs.shift();
           nextPoint = latlngs.shift();
+          currentDistance = lastPoint.distanceTo(nextPoint);
           intermediateFraction = 0;
         }
 
         if (nextPoint) {
-          currentDistance = lastPoint.distanceTo(nextPoint);
-
           var coord = lastPoint.intermediatePointTo(nextPoint, intermediateFraction);
           var speed = currentDistance / distancePerInterval * desiredSpeed;
           var t = new Date();
@@ -121,7 +128,7 @@ client.connect(10002, '127.0.0.1', function() {
             gpstime.slice(0, 3).join('') + 
             'A' + latToDegMinHemi(coord.lat) + 
             lngToDegMinHemi(coord.lon) + 
-            ("000" + speed.toFixed(1)).slice(-5) + 
+            ("000" + (speed / 1.852).toFixed(1)).slice(-5) + 
             gpstime.slice(-3).join('') + 
             '000.00,00000000L00000000)';
 
