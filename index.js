@@ -4,7 +4,11 @@ var argv = require('minimist')(process.argv.slice(2), {
     "origin": "o",
     "waypoint": "w",
     "key": "k",
-    "nosend": "n"
+    "nosend": "n",
+    "interval": "i",
+    "maxskip": "x",
+    "speed": "s",
+    "speedvariance": "v"
   }
 });
 
@@ -29,6 +33,35 @@ var directionParams = {
   "waypoints": argv.waypoint.join('|')
 };
 
+var desiredSpeed = 80;//kmh
+var speedVariance = 0;
+var intervalLength = 2;
+
+if (argv.interval) {
+  intervalLength = parseFloat(argv.interval);
+}
+
+var maxSkips = Math.floor(intervalLength * 1.5);
+
+if (argv.speedvariance) {
+  speedVariance = parseFloat(argv.speedvariance);
+}
+
+if (argv.speed) {
+  if (argv.speed.indexOf('±') > 0) {
+    var speedparts = argv.speed.split('±');
+    desiredSpeed = parseFloat(speedparts[0]);
+    speedVariance = parseFloat(speedparts[1]);
+  } else {
+    desiredSpeed = parseFloat(argv.speed);
+  }
+}
+
+if (argv.maxskip) {
+  maxSkips = parseInt(argv.maxskip);
+  if (maxSkips < 1) maxSkips = 1;
+}
+
 var polyUtil = require('polyline-encoded');
 
 //1203292316,0031698765432,GPRMC,211657.000,A,5213.0247,N,00516.7757,E,0.00,273.30,290312,,,A*62,F,imei:123456789012345,123
@@ -44,10 +77,7 @@ client.connect(10002, '127.0.0.1', function() {
       var lastPoint;
       var nextPoint;
       var currentDistance = 0;
-      var desiredSpeed = 80;//kmh
       var intermediateFraction = 0;
-      var intervalLength = 2;
-      var distancePerInterval = desiredSpeed * 1000 / 3600 * intervalLength;
 
       var latlngs = [];
 
@@ -72,6 +102,8 @@ client.connect(10002, '127.0.0.1', function() {
       console.log("Total CoordCount:", latlngs.length);
 
       var interval = setInterval(() => {
+        var distancePerInterval = (desiredSpeed + Math.random() * speedVariance * 2 - speedVariance) * 1000 / 3600 * intervalLength;
+
         var traveledThisInterval = 0;
         var skips = 0;
 
@@ -79,7 +111,7 @@ client.connect(10002, '127.0.0.1', function() {
           lastPoint = latlngs.shift();
 
         var skipPoint = lastPoint;
-        while (traveledThisInterval < distancePerInterval && skips < 5)
+        while (traveledThisInterval < distancePerInterval && skips < maxSkips)
         {
           nextPoint = latlngs.shift();
           currentDistance = skipPoint.distanceTo(nextPoint);
@@ -97,7 +129,7 @@ client.connect(10002, '127.0.0.1', function() {
         }
 
         if (nextPoint) {
-          var speed = traveledThisInterval / distancePerInterval * desiredSpeed;
+          var speed = traveledThisInterval / intervalLength * 3600 / 1000;
           var t = new Date();
           var gpstime = [
             t.getUTCFullYear().toString().slice(-2),
@@ -107,7 +139,7 @@ client.connect(10002, '127.0.0.1', function() {
             ('00' + t.getUTCMinutes()).slice(-2),
             ('00' + t.getUTCSeconds()).slice(-2),
           ]
-          console.log("Traveled " + currentDistance + "m, current speed: ", speed.toFixed(1));
+          console.log("Traveled " + traveledThisInterval + "m, current speed: " + speed.toFixed(1) + " skipped " + skips + " steps");
           console.log("Current position", nextPoint, "Upcoming:", latlngs.slice(0, 3));
           if (!argv.nosend) {
             var toSend = 
