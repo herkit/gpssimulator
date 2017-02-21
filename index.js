@@ -3,7 +3,8 @@ var argv = require('minimist')(process.argv.slice(2), {
     "destination": "d",
     "origin": "o",
     "waypoint": "w",
-    "key": "k"
+    "key": "k",
+    "nosend": "n"
   }
 });
 
@@ -40,10 +41,6 @@ client.connect(10002, '127.0.0.1', function() {
     if (err)
       console.log(err);
     else {
-      var route = 0;
-      var leg = 0;
-      var step = -1;
-
       var lastPoint;
       var nextPoint;
       var currentDistance = 0;
@@ -54,64 +51,53 @@ client.connect(10002, '127.0.0.1', function() {
 
       var latlngs = [];
 
-      var interval = setInterval(() => {
-        if (latlngs.length == 0) {
-          if (step < result.routes[route].legs[leg].steps.length - 1) 
-            step++; 
-          else 
-          { 
-            step = 0; 
-            if (leg < result.routes[route].legs.length - 1) 
-              leg++; 
-            else 
-            { 
-              leg = 0; 
-              if (route < result.routes.length -1) 
-                route++;
-              else 
-              {
-                console.log("done with route");
-                process.exit(0);
-              }
-            } 
+      for (var route = 0; route < result.routes.length; route++) {
+        console.log("Route:", route);
+        console.log(result.routes[route]);
+        for (var leg = 0; leg < result.routes[route].legs.length; leg++) {
+          console.log("Leg:", leg);
+          for (var step = 0; step < result.routes[route].legs[leg].steps.length; step++) {
+            console.log("Step:", step);
+            var stepCoords = polyUtil.
+              decode(result.routes[route].legs[leg].steps[step].polyline.points).
+              map(function(coord) { 
+                return new LatLon(coord[0], coord[1]);
+              });
+            console.log("CoordCount:", stepCoords.length);
+            latlngs = latlngs.concat(stepCoords);
           }
-          console.log("Loading route", route, "leg", leg, "step", step);
-          latlngs = 
-          polyUtil.
-          decode(result.routes[route].legs[leg].steps[step].polyline.points).
-          map(function(coord) { 
-            return new LatLon(coord[0], coord[1]); 
-          });
         }
-        if (lastPoint) {
-          intermediateFraction += (distancePerInterval / currentDistance);
-          if (intermediateFraction > 1) intermediateFraction = 1;
+      }
 
-          if(intermediateFraction >= 1)
-          {
-            lastPoint = nextPoint;
-            nextPoint = latlngs.shift();           
-            currentDistance = lastPoint.distanceTo(nextPoint);
-            intermediateFraction = 0;
-            // try to get closer to desired speed:
-            var skips = 0;
-            while(currentDistance < distancePerInterval * 0.66 && skips < 5 && latlngs.length > 2) { 
-              var skipPoint = nextPoint;
-              nextPoint = latlngs.shift();
-              currentDistance += skipPoint.distanceTo(nextPoint);
-              skips++;
-            }
-          }
-        } else {
+      console.log("Total CoordCount:", latlngs.length);
+
+      var interval = setInterval(() => {
+        var traveledThisInterval = 0;
+        var skips = 0;
+
+        if (!lastPoint)
           lastPoint = latlngs.shift();
+
+        var skipPoint = lastPoint;
+        while (traveledThisInterval < distancePerInterval && skips < 5)
+        {
           nextPoint = latlngs.shift();
-          currentDistance = lastPoint.distanceTo(nextPoint);
-          intermediateFraction = 0;
+          currentDistance = skipPoint.distanceTo(nextPoint);
+          if (traveledThisInterval + currentDistance < distancePerInterval) {
+            traveledThisInterval += currentDistance;
+            skipPoint = nextPoint;
+            nextPoint = latlngs.shift();
+            skips++
+          } else {
+            var intermediateDistance = (distancePerInterval - traveledThisInterval);
+            var intermediateFraction = intermediateDistance / currentDistance;
+            nextPoint = skipPoint.intermediatePointTo(nextPoint, intermediateFraction);
+            traveledThisInterval += intermediateDistance;
+          }
         }
 
         if (nextPoint) {
-          var coord = lastPoint.intermediatePointTo(nextPoint, intermediateFraction);
-          var speed = currentDistance / distancePerInterval * desiredSpeed;
+          var speed = traveledThisInterval / distancePerInterval * desiredSpeed;
           var t = new Date();
           var gpstime = [
             t.getUTCFullYear().toString().slice(-2),
@@ -122,18 +108,20 @@ client.connect(10002, '127.0.0.1', function() {
             ('00' + t.getUTCSeconds()).slice(-2),
           ]
           console.log("Traveled " + currentDistance + "m, current speed: ", speed.toFixed(1));
-          console.log("Sending position", coord);
-          var toSend = 
-            '(087073819397BR00' + 
-            gpstime.slice(0, 3).join('') + 
-            'A' + latToDegMinHemi(coord.lat) + 
-            lngToDegMinHemi(coord.lon) + 
-            ("000" + (speed / 1.852).toFixed(1)).slice(-5) + 
-            gpstime.slice(-3).join('') + 
-            '000.00,00000000L00000000)';
-
-          console.log("Sending", toSend);
-          client.write(toSend);
+          console.log("Current position", nextPoint, "Upcoming:", latlngs.slice(0, 3));
+          if (!argv.nosend) {
+            var toSend = 
+              '(087073819397BR00' + 
+              gpstime.slice(0, 3).join('') + 
+              'A' + latToDegMinHemi(nextPoint.lat) + 
+              lngToDegMinHemi(nextPoint.lon) + 
+              ("000" + (speed / 1.852).toFixed(1)).slice(-5) + 
+              gpstime.slice(-3).join('') + 
+              '000.00,00000000L00000000)';
+            console.log("Sending", toSend);
+            client.write(toSend);
+          }
+          lastPoint = nextPoint;
         }
       }, intervalLength * 1000)
     }
