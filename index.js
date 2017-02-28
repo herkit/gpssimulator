@@ -88,10 +88,11 @@ client.connect(10002, '127.0.0.1', function() {
           console.log("Leg:", leg);
           for (var step = 0; step < result.routes[route].legs[leg].steps.length; step++) {
             console.log("Step:", step);
+            var avgSpeed = result.routes[route].legs[leg].steps[step].distance.value / result.routes[route].legs[leg].steps[step].duration.value * 3.6;
             var stepCoords = polyUtil.
               decode(result.routes[route].legs[leg].steps[step].polyline.points).
               map(function(coord) { 
-                return new LatLon(coord[0], coord[1]);
+                return { speed: avgSpeed, coord: new LatLon(coord[0], coord[1]) };
               });
             console.log("CoordCount:", stepCoords.length);
             latlngs = latlngs.concat(stepCoords);
@@ -106,19 +107,22 @@ client.connect(10002, '127.0.0.1', function() {
 
         var traveledThisInterval = 0;
         var skips = 0;
+        var bearing = 0;
 
         if (!lastPoint)
-          lastPoint = latlngs.shift();
+          lastPoint = latlngs.shift().coord;
 
         var skipPoint = lastPoint;
         while (traveledThisInterval < distancePerInterval && skips < maxSkips)
         {
-          nextPoint = latlngs.shift();
+          nextPoint = latlngs.shift().coord;
+          bearing = lastPoint.bearingTo(nextPoint);
           currentDistance = skipPoint.distanceTo(nextPoint);
-          if (traveledThisInterval + currentDistance < distancePerInterval) {
+          if (traveledThisInterval + currentDistance < distancePerInterval && latlngs.length > 0) {
             traveledThisInterval += currentDistance;
             skipPoint = nextPoint;
-            nextPoint = latlngs.shift();
+            nextPoint = latlngs.shift().coord;
+            bearing = skipPoint.bearingTo(nextPoint);
             skips++
           } else {
             var intermediateDistance = (distancePerInterval - traveledThisInterval);
@@ -140,7 +144,7 @@ client.connect(10002, '127.0.0.1', function() {
             ('00' + t.getUTCSeconds()).slice(-2),
           ]
           console.log("Traveled " + traveledThisInterval + "m, current speed: " + speed.toFixed(1) + " skipped " + skips + " steps");
-          console.log("Current position", nextPoint, "Upcoming:", latlngs.slice(0, 3));
+          console.log("Current position", nextPoint, "Upcoming:", latlngs.slice(0, 3), "Bearing:", bearing);
           if (!argv.nosend) {
             var toSend = 
               '(087073819397BR00' + 
@@ -149,7 +153,7 @@ client.connect(10002, '127.0.0.1', function() {
               lngToDegMinHemi(nextPoint.lon) + 
               ("000" + (speed / 1.852).toFixed(1)).slice(-5) + 
               gpstime.slice(-3).join('') + 
-              '000.00,00000000L00000000)';
+              bearing.toFixed(1) + ',00000000L00000000)';
             console.log("Sending", toSend);
             client.write(toSend);
           }
