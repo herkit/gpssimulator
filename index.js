@@ -8,6 +8,7 @@ var argv = require('minimist')(process.argv.slice(2), {
     "interval": "i",
     "maxskip": "x",
     "speed": "s",
+    "deviceid": "e",
     "speedvariance": "v"
   }
 });
@@ -57,12 +58,15 @@ if (argv.speed) {
   }
 }
 
+argv.deviceid = argv.deviceid || "087073819397";
+
 if (argv.maxskip) {
   maxSkips = parseInt(argv.maxskip);
   if (maxSkips < 1) maxSkips = 1;
 }
 
 var polyUtil = require('polyline-encoded');
+var protocol = require('./protocol');
 
 //1203292316,0031698765432,GPRMC,211657.000,A,5213.0247,N,00516.7757,E,0.00,273.30,290312,,,A*62,F,imei:123456789012345,123
 
@@ -146,14 +150,14 @@ client.connect(10002, '127.0.0.1', function() {
           console.log("Traveled " + traveledThisInterval + "m, current speed: " + speed.toFixed(1) + " skipped " + skips + " steps");
           console.log("Current position", nextPoint, "Upcoming:", latlngs.slice(0, 3), "Bearing:", bearing);
           if (!argv.nosend) {
-            var toSend = 
-              '(087073819397BR00' + 
-              gpstime.slice(0, 3).join('') + 
-              'A' + latToDegMinHemi(nextPoint.lat) + 
-              lngToDegMinHemi(nextPoint.lon) + 
-              ("000" + (speed / 1.852).toFixed(1)).slice(-5) + 
-              gpstime.slice(-3).join('') + 
-              bearing.toFixed(1) + ',00000000L00000000)';
+            var toSend = protocol.getFrame({
+              timeparts: gpstime,
+              lat: nextPoint.lat,
+              lng: nextPoint.lon,
+              deviceid: argv.deviceid,
+              bearing: bearing,
+              speed: speed
+            })
             console.log("Sending", toSend);
             client.write(toSend);
           }
@@ -172,23 +176,3 @@ client.on('data', function(data) {
 client.on('close', function() {
   console.log('Connection closed');
 });
-
-function latToDegMinHemi(position) {
-  var pos = Math.abs(position);
-  var deg = Math.trunc(pos);
-  var min = (pos - deg) * 60;
-  var degmin = deg * 100 + Math.trunc(min);  
-  var minfrac = min - Math.trunc(min);
-  var hemi = (position >= 0) ? "N" : "S";
-  return ("0000" + degmin).slice(-4) + "." + (Math.round(minfrac*10000) / 10000).toPrecision(4).slice(2,6) + hemi;
-}
-
-function lngToDegMinHemi(position) {
-  var pos = Math.abs(position);
-  var deg = Math.trunc(pos);
-  var min = (pos - deg) * 60;
-  var degmin = deg * 100 + Math.trunc(min);  
-  var minfrac = min - Math.trunc(min);
-  var hemi = (position >= 0) ? "E" : "W";
-  return ("00000" + degmin).slice(-5) + "." + (Math.round(minfrac*10000) / 10000).toPrecision(4).slice(2,6) + hemi;
-}
